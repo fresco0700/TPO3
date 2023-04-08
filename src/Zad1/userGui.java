@@ -80,7 +80,7 @@ public class userGui extends Application {
 
 
         Scene scene = new Scene(gridPane);
-        stage.setTitle("Panel Użytkownika");
+        stage.setTitle("Panel Użytkownikaa");
         stage.setScene(scene);
         stage.show();
 
