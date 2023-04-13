@@ -14,10 +14,15 @@ import javafx.scene.shape.Line;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 
 
 public class userGui extends Application {
 
+    SocketChannel socketChannel;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -73,17 +78,28 @@ public class userGui extends Application {
 
         setButtonAction(subscribeButton,()->{
             subscribeTopic(subscribeEntry.getText());
+            subscribeEntry.clear();
         });
         setButtonAction(unsubscribeButton,()->{
             unsubscribeTopic(unsubscribeEntry.getText());
+            unsubscribeEntry.clear();
         });
 
 
         Scene scene = new Scene(gridPane);
-        stage.setTitle("Panel Użytkownikaa");
+        stage.setTitle("Panel Użytkownika");
         stage.setScene(scene);
         stage.show();
 
+
+        try{
+            // Laczenie z serwerem przy pomocy kanałów
+            socketChannel = SocketChannel.open();
+            socketChannel.connect(new InetSocketAddress("localhost",8080));
+
+        }catch (IOException e){
+            e.printStackTrace();
+        }
     }
 
     private void setButtonAction(Button button, Runnable action) {
@@ -96,10 +112,42 @@ public class userGui extends Application {
     }
 
     private void subscribeTopic(String topicToSubscribe){
-        System.out.println(topicToSubscribe);
+        String request = "{\"subscribe\": \"" + topicToSubscribe +"\"}";
+        sendMessage(request);
     }
 
-    private void unsubscribeTopic(String topicTounSubscribe){
-        System.out.println(topicTounSubscribe);
+    private void unsubscribeTopic(String topicToUnSubscribe){
+        String request = "{\"unsubscribe\": \"" + topicToUnSubscribe +"\"}";
+        sendMessage(request);
     }
+    private void sendMessage(String message){
+        try{
+            ByteBuffer reqByteBuffer = ByteBuffer.wrap(message.getBytes());
+            socketChannel.write(reqByteBuffer);
+            reqByteBuffer.clear();
+
+            ByteBuffer resByteBuffer = ByteBuffer.allocate(2048);
+            int bytesread = socketChannel.read(resByteBuffer);
+
+            if (bytesread > 0){
+                resByteBuffer.flip();
+                String response = new String(resByteBuffer.array()).trim();
+                System.out.println(response);
+            }
+
+        }catch (IOException e){
+            e.printStackTrace();
+        }
+
+
+    }
+
+    @Override
+    public void stop(){
+
+        try {
+            socketChannel.close();
+        }catch (IOException e) {e.printStackTrace();}
+    }
+
 }
