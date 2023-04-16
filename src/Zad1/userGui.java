@@ -18,12 +18,14 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class userGui extends Application {
 
     SocketChannel socketChannel;
-
+    Text scrollPaneText = new Text();
     @Override
     public void start(Stage stage) throws Exception {
 
@@ -51,7 +53,7 @@ public class userGui extends Application {
         line1.setStyle("-fx-stroke: grey;");
         Text info = new Text("Newsletter");
         info.setStyle("-fx-font: 18 arial;");
-        Text scrollPaneText = new Text();
+
         ScrollPane scrollPane = new ScrollPane();
         scrollPane.setContent(scrollPaneText);
         scrollPane.setMinWidth(200);
@@ -93,7 +95,7 @@ public class userGui extends Application {
 
 
         try{
-            // Laczenie z serwerem przy pomocy kanałów
+            // laczenie z serwerem
             socketChannel = SocketChannel.open();
             socketChannel.connect(new InetSocketAddress("localhost",8080));
 
@@ -132,13 +134,27 @@ public class userGui extends Application {
             if (bytesread > 0){
                 resByteBuffer.flip();
                 String response = new String(resByteBuffer.array()).trim();
-                System.out.println(response);
+                String regexPattern = "\\{\"(.*?)\": \"(.*?)\"\\}";
+                Pattern pattern = Pattern.compile(regexPattern);
+                Matcher matcher = pattern.matcher(response);
+
+                if (matcher.find()){
+                    String action = matcher.group(1);
+                    String content = matcher.group(2);
+
+                    if ("newsletter".equals(action)) {
+                        scrollPaneText.setText(content);
+                    } else {
+                        scrollPaneText.setText("Nieznana operacja pozyskana przez serwer");
+                    }
+
+                }
+
             }
 
         }catch (IOException e){
             e.printStackTrace();
         }
-
 
     }
 

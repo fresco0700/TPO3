@@ -2,7 +2,6 @@ package Zad1;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -23,24 +22,22 @@ public class server {
 
     public static void main(String[] args) {
         try {
-            // Utwórz selektor
+            // tworzenie selektora
             Selector selector = Selector.open();
 
-            // Utwórz serwerowy kanał socketów dla klientów
+            // kanal dla klienta
             ServerSocketChannel clientServerSocketChannel = ServerSocketChannel.open();
             clientServerSocketChannel.bind(new InetSocketAddress("localhost", 8080));
             clientServerSocketChannel.configureBlocking(false);
             clientServerSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-            // Utwórz serwerowy kanał socketów dla administratora
+            // kanal dla admina
             ServerSocketChannel adminServerSocketChannel = ServerSocketChannel.open();
             adminServerSocketChannel.bind(new InetSocketAddress("localhost", 8081));
             adminServerSocketChannel.configureBlocking(false);
             adminServerSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-            // Główna pętla serwera
             while (true) {
-                // Blokowanie, aż będzie co najmniej jeden kanał gotowy
                 selector.select();
 
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
@@ -50,27 +47,34 @@ public class server {
                     SelectionKey key = keyIterator.next();
 
                     if (key.isAcceptable()) {
-                        // Akceptujemy nowe połączenie
+                        // akceptacja nowego polaczenia
                         ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
                         SocketChannel socketChannel = serverChannel.accept();
                         socketChannel.configureBlocking(false);
                         socketChannel.register(selector, SelectionKey.OP_READ);
 
-                        // Sprawdź, czy to połączenie administratora
                         if (serverChannel == adminServerSocketChannel) {
                             System.out.println("Administrator połączony");
+
                         } else {
                             int clientId = clientIdCounter.getAndIncrement();
+                            // tworzymy obiekt klienta
                             Client client = new Client(clientId, socketChannel);
+                            // umieszczamy w hashmapie obiekt clienta z kluczem clientid
                             clientMap.put(clientId, client);
-                            socketChannel.register(selector, SelectionKey.OP_READ, client); // Dodajemy obiekt Client jako załącznik
-                            System.out.println("Klient połączony, ID klienta: " + clientId);
+                            // dodajemy obiekt klienta jako zalacznik
+                            socketChannel.register(selector, SelectionKey.OP_READ, client);
+                            System.out.println("Klient połączony,  ID klienta : " + clientId);
                         }
                     } else if (key.isReadable()) {
-                        // Odczytujemy dane
+                        // Kod nizej sluzy do czytania wiadomosci
+
+
                         SocketChannel socketChannel = (SocketChannel) key.channel();
-                        Client client = (Client) key.attachment(); // Pobieramy obiekt Client jako załącznik
-                        int clientId = client.getId(); // Pobieramy identyfikator klienta
+                        // pobieramy obiekt clienta jako zalacznik aby poźniej móc się do niego odnieść
+                        Client client = (Client) key.attachment();
+                        // pobieramy identyfikator klienta aby pozniej odroznic od kogo byla wiadomosc
+                        int clientId = client.getId();
 
                         ByteBuffer buffer = ByteBuffer.allocate(256);
                         int bytesRead = socketChannel.read(buffer);
@@ -80,8 +84,8 @@ public class server {
                         } else {
                             buffer.flip();
                             String receivedMessage = new String(buffer.array()).trim();
-                            System.out.println("Odebrane wiadomości od klienta " + clientId + ": " + receivedMessage);
-                            Client clientid = clientMap.get(clientId);
+                            System.out.println("odebrana wiadomosc od klienta o ID " + clientId + ": " + receivedMessage);
+                            Client clientConnected = clientMap.get(clientId);
 
                             String regexPattern = "\\{\"(.*?)\": \"(.*?)\"\\}";
                             Pattern pattern = Pattern.compile(regexPattern);
@@ -91,17 +95,16 @@ public class server {
                                 String action = matcher.group(1);
                                 String content = matcher.group(2);
 
-                                switch(action) {
-                                    case "subscribe":
+                                switch (action) {
+                                    case "subscribe" -> {
                                         System.out.println("Subskrybujemy temat");
-                                        clientid.subscribeTopic(content);
-                                        break;
-                                    case "unsubscribe":
+                                        clientConnected.subscribeTopic(content);
+                                    }
+                                    case "unsubscribe" -> {
                                         System.out.println("Usuwamy temat");
-                                        clientid.unsubscribeTopic(content);
-                                        break;
-                                    default:
-                                        System.out.println("Nie ma takiego kejsa");
+                                        clientConnected.unsubscribeTopic(content);
+                                    }
+                                    default -> System.out.println("Taka akcja nie jest dostępna");
                                 }
 
                             }else{
@@ -109,10 +112,13 @@ public class server {
                             }
 
 
-                            System.out.println(clientid.getSubscribedTopics());
+                            System.out.println("Klient o ID " + clientConnected.getId()
+                                    + " jest zainteresowany tym tamatami : "
+                                    + clientConnected.getSubscribedTopics());
 
                             // Odpowiedź na wiadomość
-                            String response = "Serwer otrzymał: " + receivedMessage;
+                            String response = "Operacja wykonana poprawnie";
+
                             ByteBuffer responseBuffer = ByteBuffer.wrap(response.getBytes());
                             socketChannel.write(responseBuffer);
                         }
@@ -144,6 +150,29 @@ public class server {
             }
         } else {
             System.out.println("Klient o ID " + clientId + " nie istnieje.");
+        }
+    }
+    private static void sendToTopicSubscribers(String topic, String message) {
+        // czytanie wartosci z hashmapy w celu rozeslania tematu otrzymanego przez admina do zainteresowanch
+        for (Client client : clientMap.values()) {
+
+            if (client.isSubscribedToTopic(topic)) {
+
+                SocketChannel clientSocketChannel = client.getSocketChannel();
+
+                if (clientSocketChannel.isConnected()) {
+
+                    try {
+                        String newsletter = "{\"newsletter\": \"" + message +"\"}";
+                        ByteBuffer buffer = ByteBuffer.wrap(newsletter.getBytes());
+                        clientSocketChannel.write(buffer);
+                        System.out.println("Wysłano wiadomość do klienta o ID " + client.getId() + ": " + message);
+                    }catch (IOException e) {e.printStackTrace();}
+
+                }else {
+                    System.out.println("Wystapil blad z polaczeniem z "+ client.getId());
+                }
+            }
         }
     }
 }
