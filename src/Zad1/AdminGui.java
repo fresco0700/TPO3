@@ -1,24 +1,32 @@
 package Zad1;
 
 import javafx.application.Application;
+import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.ScrollPane;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
+import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import javafx.scene.shape.Line;
+import javafx.stage.Popup;
+import javafx.stage.PopupWindow;
+import javafx.stage.Window;
 
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SocketChannel;
 
 
 public class AdminGui extends Application{
 
+    SocketChannel socketChannel;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -110,15 +118,20 @@ public class AdminGui extends Application{
 
         setButtonAction(SendTopicButton,() ->{
             sendTopic(EntryTopicField.getText(),EntryMsgField.getText());
+            EntryTopicField.clear();
+            EntryMsgField.clear();
+
         });
         setButtonAction(DownloadTopicButton,() ->{
             TopicField.setText(downloadTopics());
         });
         setButtonAction(SendCreateButton, () -> {
-            topicEraseCreate("Temat",false);
+            topicEraseCreate(EntryCreateField.getText(),false);
+            EntryCreateField.clear();
         });
         setButtonAction(SendEraseButton,() ->{
-            topicEraseCreate("Temat",true);
+            topicEraseCreate(EntryEraseField.getText(),true);
+            EntryEraseField.clear();
         });
 
 
@@ -128,6 +141,12 @@ public class AdminGui extends Application{
         stage.setTitle("Panel Administracyjny");
         stage.show();
 
+        try{
+            socketChannel = SocketChannel.open();
+            socketChannel.connect(new InetSocketAddress("localhost",8080));
+        } catch (ConnectException e ){
+            System.out.println("Błąd połączenia z serwerem");
+        } catch (IOException e ){ e.printStackTrace();}
 
     }
     private void setButtonAction(Button button, Runnable action) {
@@ -140,21 +159,65 @@ public class AdminGui extends Application{
     }
 
     private void sendTopic(String Topic, String content){
-        //wysylanie wiadomosci do serwera
-        System.out.println("Temat: "+Topic +" Treść: "+content);
+        // wysylanie wiadomosci do serwera
+        if (!Topic.isEmpty() && !content.isEmpty()) {
+            String text = Topic.toLowerCase() + "###" + content;
+            String request = "{\"sendToSubscribers\": \"" + text + "\"}";
+            System.out.println(request);
+            sendMessage(request);
+        }
+
     }
 
     private String downloadTopics(){
-    //Pobieranie tematów z serwera
-        return "Tematy z serwera";
+    // Pobieranie tematów z serwera
+        String request = "{\"Download\": \"Topics\"}";
+
+        return sendMessage(request);
     }
 
     private void topicEraseCreate(String topic,boolean erase){
-        if (erase){
-            System.out.println("usuwanie");
+        if (!topic.isEmpty()) {
+            if (erase) {
+                System.out.println("usuwanie");
+                String request = "{\"deleteTopic\": \"" + topic.toLowerCase() + "\"}";
+                sendMessage(request);
+            } else {
+                System.out.println("Dodawanie");
+                String request = "{\"addTopic\": \"" + topic.toLowerCase() + "\"}";
+                sendMessage(request);
+            }
         }
-        else {
-            System.out.println("Dodawanie");
-        }
+    }
+
+    private String sendMessage(String messsage){
+        if (messsage.isEmpty()){return "";}
+        try {
+            ByteBuffer reqByteBuffer = ByteBuffer.wrap(messsage.getBytes());
+            socketChannel.write(reqByteBuffer);
+            reqByteBuffer.clear();
+
+            ByteBuffer resByteBuffer  = ByteBuffer.allocate(2048);
+            int bytesread = socketChannel.read(resByteBuffer);
+            if (bytesread > 0){
+                reqByteBuffer.flip();
+                String response = new String(resByteBuffer.array()).trim();
+                System.out.println(response);
+                return response;
+
+            }
+        } catch (ClosedChannelException e){
+            System.out.println("Błąd połączenia z serwerem");
+        } catch (IOException e ){ e.printStackTrace();}
+
+        return "";
+    }
+
+    @Override
+    public void stop() throws Exception {
+        try {
+            socketChannel.close();
+        }catch (IOException e ){ e.printStackTrace();}
+        super.stop();
     }
 }

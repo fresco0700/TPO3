@@ -7,10 +7,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -18,26 +15,20 @@ import java.util.regex.Pattern;
 public class server {
     private static AtomicInteger clientIdCounter = new AtomicInteger(1);
     private static Map<Integer, Client> clientMap = new HashMap<>();
-
-
+    private static volatile boolean isRunning = true;
+    private static Set<String> Topics = new HashSet<>();
     public static void main(String[] args) {
         try {
             // tworzenie selektora
             Selector selector = Selector.open();
 
-            // kanal dla klienta
+            // kanal do oblslugi zapytan
             ServerSocketChannel clientServerSocketChannel = ServerSocketChannel.open();
             clientServerSocketChannel.bind(new InetSocketAddress("localhost", 8080));
             clientServerSocketChannel.configureBlocking(false);
             clientServerSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-            // kanal dla admina
-            ServerSocketChannel adminServerSocketChannel = ServerSocketChannel.open();
-            adminServerSocketChannel.bind(new InetSocketAddress("localhost", 8081));
-            adminServerSocketChannel.configureBlocking(false);
-            adminServerSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
-
-            while (true) {
+            while (isRunning) {
                 selector.select();
 
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
@@ -53,10 +44,7 @@ public class server {
                         socketChannel.configureBlocking(false);
                         socketChannel.register(selector, SelectionKey.OP_READ);
 
-                        if (serverChannel == adminServerSocketChannel) {
-                            System.out.println("Administrator połączony");
 
-                        } else {
                             int clientId = clientIdCounter.getAndIncrement();
                             // tworzymy obiekt klienta
                             Client client = new Client(clientId, socketChannel);
@@ -65,7 +53,7 @@ public class server {
                             // dodajemy obiekt klienta jako zalacznik
                             socketChannel.register(selector, SelectionKey.OP_READ, client);
                             System.out.println("Klient połączony,  ID klienta : " + clientId);
-                        }
+
                     } else if (key.isReadable()) {
                         // Kod nizej sluzy do czytania wiadomosci
 
@@ -74,6 +62,7 @@ public class server {
                         // pobieramy obiekt clienta jako zalacznik aby poźniej móc się do niego odnieść
                         Client client = (Client) key.attachment();
                         // pobieramy identyfikator klienta aby pozniej odroznic od kogo byla wiadomosc
+
                         int clientId = client.getId();
 
                         ByteBuffer buffer = ByteBuffer.allocate(256);
@@ -94,78 +83,88 @@ public class server {
                             if (matcher.find()) {
                                 String action = matcher.group(1);
                                 String content = matcher.group(2);
-
+                                System.out.println(action+" : "+content);
                                 switch (action) {
+                                    // Akcje dla klienta
                                     case "subscribe" -> {
-                                        System.out.println("Subskrybujemy temat");
+                                        System.out.println("INFO Klient o ID "+client.getId()+" zasubskrybował temat" + content);
                                         clientConnected.subscribeTopic(content);
                                     }
                                     case "unsubscribe" -> {
-                                        System.out.println("Usuwamy temat");
+                                        System.out.println("INFO Klient o ID "+client.getId()+" odsubskrybował temat" + content);
                                         clientConnected.unsubscribeTopic(content);
+                                    }
+                                    case "EXIT" ->{
+                                        System.out.println("INFO Zamykam polaczenie z klientem" + client.getId());
+                                        socketChannel.close();
+                                        clientMap.remove(clientId);
+                                    }
+                                    // Akcje dla admina
+                                    case "addTopic" ->{
+                                        System.out.println("Dodajemy temat");
+                                        Topics.add(content);
+                                        System.out.println(content);
+                                        publicBroadcast("Dodano nowy temat: "+content);
+                                    }
+                                    case "deleteTopic" ->{
+                                        System.out.println("Usuwamy temat");
+                                        Topics.remove(content);
+                                        publicBroadcast("Usunieto temat : "+content);
+                                    }
+                                    case "Download" ->{
+                                        System.out.println("Pobranie istniejacych tematow");
+                                        String allTopics = String.join(",",Topics);
+                                        if (allTopics.isEmpty()){
+                                            sendAnnouncement("Brak tematów",socketChannel);
+                                        }
+                                        else {
+                                            sendAnnouncement(allTopics,socketChannel);
+                                        }
+
+                                    }
+                                    case "sendToSubscribers" ->{
+                                        System.out.println("Wysylanie tresci do zainteresowanych");
+                                        String[] parts = content.split("###");
+                                        if (parts.length >= 2) {
+                                            String title = parts[0];
+                                            String text = parts[1];
+                                            sendTopicSubscribers(title,text);
+
+                                            sendAnnouncement("Wyslano tresc do zainteresowanych", socketChannel);
+                                        }
+                                        else {sendAnnouncement("Twój komunikat nie został wczytany, spróbuj ponowanie...",socketChannel);}
                                     }
                                     default -> System.out.println("Taka akcja nie jest dostępna");
                                 }
 
-                            }else{
+                            } else {
                                 System.out.println("Błąd dopasowania");
                             }
 
-
-                            System.out.println("Klient o ID " + clientConnected.getId()
-                                    + " jest zainteresowany tym tamatami : "
-                                    + clientConnected.getSubscribedTopics());
-
-                            // Odpowiedź na wiadomość
-                            String response = "Operacja wykonana poprawnie";
-
-                            ByteBuffer responseBuffer = ByteBuffer.wrap(response.getBytes());
-                            socketChannel.write(responseBuffer);
+                                System.out.println("Klient o ID " + clientConnected.getId()
+                                        + " jest zainteresowany tym tamatami : "
+                                        + clientConnected.getSubscribedTopics());
+                            System.out.println("Tematy w systemie: " + Topics);
                         }
                     }
-
                     keyIterator.remove();
                 }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-
+        } catch (IOException e) {e.printStackTrace();}
     }
-    private static void sendMessageToClient(int clientId, String message) {
-        Client client = clientMap.get(clientId);
-        if (client != null) {
-            SocketChannel clientSocketChannel = client.getSocketChannel();
-
-            if (clientSocketChannel.isConnected()) {
-                try {
-                    ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
-                    clientSocketChannel.write(buffer);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            } else {
-                System.out.println("Klient o ID " + clientId + " nie jest połączony.");
-            }
-        } else {
-            System.out.println("Klient o ID " + clientId + " nie istnieje.");
-        }
-    }
-    private static void sendToTopicSubscribers(String topic, String message) {
+    private static void sendTopicSubscribers(String topic, String message) {
         // czytanie wartosci z hashmapy w celu rozeslania tematu otrzymanego przez admina do zainteresowanch
         for (Client client : clientMap.values()) {
 
             if (client.isSubscribedToTopic(topic)) {
 
-                SocketChannel clientSocketChannel = client.getSocketChannel();
-
-                if (clientSocketChannel.isConnected()) {
+                SocketChannel socketChannel = client.getSocketChannel();
+                if (socketChannel.isConnected()) {
 
                     try {
                         String newsletter = "{\"newsletter\": \"" + message +"\"}";
                         ByteBuffer buffer = ByteBuffer.wrap(newsletter.getBytes());
-                        clientSocketChannel.write(buffer);
+                        socketChannel.write(buffer);
                         System.out.println("Wysłano wiadomość do klienta o ID " + client.getId() + ": " + message);
                     }catch (IOException e) {e.printStackTrace();}
 
@@ -175,4 +174,27 @@ public class server {
             }
         }
     }
+    private static void publicBroadcast(String message){
+            for (Client client : clientMap.values()){
+
+                SocketChannel socketChannel = client.getSocketChannel();
+                if (socketChannel.isConnected()){
+                    try {
+                        String newsletter = "{\"newsletter\": \"" + message +"\"}";
+                        ByteBuffer buffer = ByteBuffer.wrap(newsletter.getBytes());
+
+                        socketChannel.write(buffer);
+                        System.out.println("Wyslano powiadomienie do " + client.getId());
+                    }catch (IOException e){ e.printStackTrace();}
+                }else {
+                    System.out.println("Klient o ID " +client.getId()+" nie jest połączony");
+                }
+            }
+    }
+    private static void sendAnnouncement(String content,SocketChannel socketChannel) throws IOException {
+        ByteBuffer responseBuffer = ByteBuffer.wrap(content.getBytes());
+        socketChannel.write(responseBuffer);
+
+    }
+
 }

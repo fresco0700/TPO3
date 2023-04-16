@@ -15,9 +15,12 @@ import javafx.scene.text.Text;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.AsynchronousCloseException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -98,9 +101,57 @@ public class userGui extends Application {
             // laczenie z serwerem
             socketChannel = SocketChannel.open();
             socketChannel.connect(new InetSocketAddress("localhost",8080));
+            Thread receiveMessagesThread = new Thread(() -> {
+                try {
+                    ByteBuffer buffer = ByteBuffer.allocate(1024);
+                    while (true) {
+                        buffer.clear();
+                        int bytesRead = socketChannel.read(buffer);
+                        if (bytesRead > 0) {
+                            buffer.flip();
+                            String response = new String(buffer.array()).trim();
+                            String regexPattern = "\\{\"(.*?)\": \"(.*?)\"\\}";
+                            Pattern pattern = Pattern.compile(regexPattern);
+                            Matcher matcher = pattern.matcher(response);
 
-        }catch (IOException e){
+                            if (matcher.find()){
+                                String action = matcher.group(1);
+                                String content = matcher.group(2);
+
+                                if ("newsletter".equals(action)) {
+                                    scrollPaneText.setText(scrollPaneText.getText()+"\n"+ content);
+
+                                } else {
+                                    scrollPaneText.setText("Nieznana operacja pozyskana przez serwer");
+                                }
+
+                            }
+
+                        }
+                    }
+                }
+                catch (AsynchronousCloseException e) {
+                    System.out.println("Kanał został zamknięty");
+                }
+                catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        socketChannel.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+
+            receiveMessagesThread.start();
+
+        }catch (ConnectException e ){
+            System.out.println("Błąd połączenia z serwerem");
+        }
+        catch (IOException e) {
             e.printStackTrace();
+
         }
     }
 
@@ -114,13 +165,17 @@ public class userGui extends Application {
     }
 
     private void subscribeTopic(String topicToSubscribe){
-        String request = "{\"subscribe\": \"" + topicToSubscribe +"\"}";
+        if (!topicToSubscribe.isEmpty()){
+        String request = "{\"subscribe\": \"" + topicToSubscribe.toLowerCase() +"\"}";
         sendMessage(request);
+        }
     }
 
     private void unsubscribeTopic(String topicToUnSubscribe){
-        String request = "{\"unsubscribe\": \"" + topicToUnSubscribe +"\"}";
-        sendMessage(request);
+        if (!topicToUnSubscribe.isEmpty()) {
+            String request = "{\"unsubscribe\": \"" + topicToUnSubscribe.toLowerCase() + "\"}";
+            sendMessage(request);
+        }
     }
     private void sendMessage(String message){
         try{
@@ -128,31 +183,11 @@ public class userGui extends Application {
             socketChannel.write(reqByteBuffer);
             reqByteBuffer.clear();
 
-            ByteBuffer resByteBuffer = ByteBuffer.allocate(2048);
-            int bytesread = socketChannel.read(resByteBuffer);
 
-            if (bytesread > 0){
-                resByteBuffer.flip();
-                String response = new String(resByteBuffer.array()).trim();
-                String regexPattern = "\\{\"(.*?)\": \"(.*?)\"\\}";
-                Pattern pattern = Pattern.compile(regexPattern);
-                Matcher matcher = pattern.matcher(response);
-
-                if (matcher.find()){
-                    String action = matcher.group(1);
-                    String content = matcher.group(2);
-
-                    if ("newsletter".equals(action)) {
-                        scrollPaneText.setText(content);
-                    } else {
-                        scrollPaneText.setText("Nieznana operacja pozyskana przez serwer");
-                    }
-
-                }
-
-            }
-
-        }catch (IOException e){
+        }catch (ClosedChannelException e ){
+            System.out.println("Błąd połączenia z serwerem");
+        }
+        catch (IOException e){
             e.printStackTrace();
         }
 
@@ -160,10 +195,14 @@ public class userGui extends Application {
 
     @Override
     public void stop(){
-
         try {
+            String request = "{\"EXIT\": \"EXIT\"}";
+            sendMessage(request);
+            Thread.sleep(1000);
             socketChannel.close();
-        }catch (IOException e) {e.printStackTrace();}
+        }catch (IOException e) {e.printStackTrace();} catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }
