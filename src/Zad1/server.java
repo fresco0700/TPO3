@@ -13,10 +13,13 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class server {
     private static AtomicInteger clientIdCounter = new AtomicInteger(1);
-    private static Map<Integer, SocketChannel> clientMap = new HashMap<>();
+    private static Map<Integer, Client> clientMap = new HashMap<>();
+
 
     public static void main(String[] args) {
         try {
@@ -58,13 +61,17 @@ public class server {
                             System.out.println("Administrator połączony");
                         } else {
                             int clientId = clientIdCounter.getAndIncrement();
-                            clientMap.put(clientId, socketChannel);
+                            Client client = new Client(clientId, socketChannel);
+                            clientMap.put(clientId, client);
+                            socketChannel.register(selector, SelectionKey.OP_READ, client); // Dodajemy obiekt Client jako załącznik
                             System.out.println("Klient połączony, ID klienta: " + clientId);
-
                         }
                     } else if (key.isReadable()) {
                         // Odczytujemy dane
                         SocketChannel socketChannel = (SocketChannel) key.channel();
+                        Client client = (Client) key.attachment(); // Pobieramy obiekt Client jako załącznik
+                        int clientId = client.getId(); // Pobieramy identyfikator klienta
+
                         ByteBuffer buffer = ByteBuffer.allocate(256);
                         int bytesRead = socketChannel.read(buffer);
 
@@ -73,7 +80,36 @@ public class server {
                         } else {
                             buffer.flip();
                             String receivedMessage = new String(buffer.array()).trim();
-                            System.out.println("Odebrane wiadomości: " + receivedMessage);
+                            System.out.println("Odebrane wiadomości od klienta " + clientId + ": " + receivedMessage);
+                            Client clientid = clientMap.get(clientId);
+
+                            String regexPattern = "\\{\"(.*?)\": \"(.*?)\"\\}";
+                            Pattern pattern = Pattern.compile(regexPattern);
+                            Matcher matcher = pattern.matcher(receivedMessage);
+
+                            if (matcher.find()) {
+                                String action = matcher.group(1);
+                                String content = matcher.group(2);
+
+                                switch(action) {
+                                    case "subscribe":
+                                        System.out.println("Subskrybujemy temat");
+                                        clientid.subscribeTopic(content);
+                                        break;
+                                    case "unsubscribe":
+                                        System.out.println("Usuwamy temat");
+                                        clientid.unsubscribeTopic(content);
+                                        break;
+                                    default:
+                                        System.out.println("Nie ma takiego kejsa");
+                                }
+
+                            }else{
+                                System.out.println("Błąd dopasowania");
+                            }
+
+
+                            System.out.println(clientid.getSubscribedTopics());
 
                             // Odpowiedź na wiadomość
                             String response = "Serwer otrzymał: " + receivedMessage;
@@ -91,11 +127,23 @@ public class server {
 
 
     }
-    private static void sendMsgToClient(int id,String message){
-        SocketChannel socketChannel = clientMap.get(id);
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
-            socketChannel.write(buffer);
-        }catch (IOException e){e.printStackTrace();}
+    private static void sendMessageToClient(int clientId, String message) {
+        Client client = clientMap.get(clientId);
+        if (client != null) {
+            SocketChannel clientSocketChannel = client.getSocketChannel();
+
+            if (clientSocketChannel.isConnected()) {
+                try {
+                    ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
+                    clientSocketChannel.write(buffer);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            } else {
+                System.out.println("Klient o ID " + clientId + " nie jest połączony.");
+            }
+        } else {
+            System.out.println("Klient o ID " + clientId + " nie istnieje.");
+        }
     }
 }
