@@ -144,10 +144,7 @@ public class AdminGui extends Application{
         try{
             socketChannel = SocketChannel.open();
             socketChannel.connect(new InetSocketAddress("localhost",8080));
-        } catch (ConnectException e ){
-            System.out.println("Błąd połączenia z serwerem");
-        } catch (IOException e ){ e.printStackTrace();}
-
+        } catch (Exception e ){System.out.println("Błąd połączenia z serwerem");}
     }
     private void setButtonAction(Button button, Runnable action) {
         button.setOnAction(new EventHandler<ActionEvent>() {
@@ -166,13 +163,11 @@ public class AdminGui extends Application{
             System.out.println(request);
             sendMessage(request);
         }
-
     }
 
     private String downloadTopics(){
     // Pobieranie tematów z serwera
         String request = "{\"Download\": \"Topics\"}";
-
         return sendMessage(request);
     }
 
@@ -204,12 +199,8 @@ public class AdminGui extends Application{
                 String response = new String(resByteBuffer.array()).trim();
                 System.out.println(response);
                 return response;
-
             }
-        } catch (ClosedChannelException e){
-            System.out.println("Błąd połączenia z serwerem");
-        } catch (IOException e ){ e.printStackTrace();}
-
+        } catch (Exception e){System.out.println("Błąd połączenia z serwerem");}
         return "";
     }
 

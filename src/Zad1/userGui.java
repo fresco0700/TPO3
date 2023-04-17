@@ -17,6 +17,7 @@ import javafx.stage.Stage;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
@@ -129,6 +130,8 @@ public class userGui extends Application {
 
                         }
                     }
+                }catch (SocketException e){
+                    System.out.println("Błąd połączenia z serwerem");
                 }
                 catch (AsynchronousCloseException e) {
                     System.out.println("Kanał został zamknięty");
@@ -138,12 +141,9 @@ public class userGui extends Application {
                 } finally {
                     try {
                         socketChannel.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                    } catch (IOException e) { e.printStackTrace();}
                 }
             });
-
             receiveMessagesThread.start();
 
         }catch (ConnectException e ){
@@ -151,7 +151,6 @@ public class userGui extends Application {
         }
         catch (IOException e) {
             e.printStackTrace();
-
         }
     }
 
@@ -186,6 +185,7 @@ public class userGui extends Application {
 
         }catch (ClosedChannelException e ){
             System.out.println("Błąd połączenia z serwerem");
+
         }
         catch (IOException e){
             e.printStackTrace();

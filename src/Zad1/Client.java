@@ -13,9 +13,9 @@ public class Client {
     private Set<String> subscribedTopics;
 
     public Client(int id, SocketChannel socketChannel) {
+        this.subscribedTopics = new HashSet<>();
         this.id = id;
         this.socketChannel = socketChannel;
-        this.subscribedTopics = new HashSet<>();
     }
     public int getId() {
         return id;
